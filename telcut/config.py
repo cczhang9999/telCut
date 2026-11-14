@@ -52,6 +52,8 @@ class Config:
     quote_reply: bool = True
     send_as_document: bool = True
     cooldown_seconds: float = 30
+    delay_min_seconds: float = 0
+    delay_max_seconds: float = 0
     max_message_age_seconds: float = 120
     caption: str = ""
     capture: CaptureConfig = field(default_factory=CaptureConfig)
@@ -96,6 +98,10 @@ class Config:
             capture = CaptureConfig(**raw_capture)
         except TypeError as exc:
             raise ValueError("capture 存在未知配置项") from exc
+        delay_min = number(data.get("delay_min_seconds", 0), "delay_min_seconds", 0)
+        delay_max = number(data.get("delay_max_seconds", 0), "delay_max_seconds", 0)
+        if delay_max < delay_min:
+            raise ValueError("delay_max_seconds 不能小于 delay_min_seconds")
         return cls(
             all_chats=all_chats,
             ignore_bots=ignore_bots,
@@ -105,6 +111,7 @@ class Config:
             trigger_mode=trigger_mode,
             **switches,
             cooldown_seconds=number(data.get("cooldown_seconds", 30), "cooldown_seconds", 0),
+            delay_min_seconds=delay_min, delay_max_seconds=delay_max,
             max_message_age_seconds=number(data.get("max_message_age_seconds", 120),
                                            "max_message_age_seconds", 1),
             caption=caption, capture=capture,

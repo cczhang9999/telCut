@@ -50,7 +50,8 @@ def ready(config):
     status("running")
     mode = "包含" if config.trigger_mode == "contains" else "完全等于"
     print(f"\ntelCut 已启动：Telegram 消息{mode}“{' / '.join(config.keywords)}”时，"
-          "在同一聊天发送菜单栏时间图片。"
+          f"随机等待 {config.delay_min_seconds:g}～{config.delay_max_seconds:g} 秒，"
+          "然后截图并在同一聊天发送图片。"
           "不附文字、不引用原消息。保持本窗口运行，按 Ctrl+C 停止。", flush=True)
 
 

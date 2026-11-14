@@ -138,6 +138,7 @@ def main():
                 profile = Config(all_chats=True, keywords=("是ZF-DA组",), trigger_mode="contains",
                                  include_outgoing=True, quote_reply=False, send_as_document=False,
                                  cooldown_seconds=0,
+                                 delay_min_seconds=30, delay_max_seconds=120,
                                  capture=CaptureConfig(width_pixels=868, height_pixels=62,
                                                        require_menu_content=True))
                 json.dump(asdict(profile), handle, ensure_ascii=False, indent=2)

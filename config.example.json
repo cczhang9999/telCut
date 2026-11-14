@@ -9,6 +9,8 @@
   "quote_reply": false,
   "send_as_document": false,
   "cooldown_seconds": 0,
+  "delay_min_seconds": 30,
+  "delay_max_seconds": 120,
   "max_message_age_seconds": 120,
   "caption": "",
   "capture": {

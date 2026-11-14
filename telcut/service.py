@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -26,9 +27,11 @@ class Incoming:
 
 
 class AutoReply:
-    def __init__(self, config: Config, state: State, send, capture=capture_clock, clock=time.time):
+    def __init__(self, config: Config, state: State, send, capture=capture_clock, clock=time.time,
+                 sleep=asyncio.sleep, choose_delay=random.uniform):
         self.config, self.state, self.send = config, state, send
         self.capture, self.clock = capture, clock
+        self.sleep, self.choose_delay = sleep, choose_delay
         self.lock = asyncio.Lock()
         self.blocked_until = 0.0
 
@@ -60,28 +63,43 @@ class AutoReply:
             return False
         async with self.lock:
             now = self.clock()
-            # Recheck after waiting: never send a stale queued screenshot.
+            # Reject stale events before admitting them. Once accepted, the
+            # intentional delay may exceed max_message_age_seconds.
             if (not self.matches(message, now) or now < self.blocked_until
                     or not self.state.claim(message.chat_id, message.message_id, now,
                                             self.config.cooldown_seconds)):
                 return False
-            try:
+        try:
+            delay = self.choose_delay(self.config.delay_min_seconds, self.config.delay_max_seconds)
+            if delay > 0:
+                log.info("已触发，%.1f 秒后截图 chat=%s message=%s",
+                         delay, message.chat_id, message.message_id)
+                # Reserve before sleeping, and release the lock so other chats
+                # can start their independent delays without queuing behind us.
+                await self.sleep(delay)
+            async with self.lock:
+                if self.clock() < self.blocked_until:
+                    self.state.finish(message.chat_id, message.message_id, "skipped")
+                    return False
                 png = await asyncio.to_thread(self.capture, self.config.capture)
                 file = io.BytesIO(png)
                 file.name = "system-time.png"
                 await self.send(message, file, self.config.caption)
-            except Exception as exc:
-                # FloodWait errors expose seconds; back off globally without
-                # blocking the update loop or retrying an outdated screenshot.
-                wait = getattr(exc, "seconds", None)
-                if isinstance(wait, (int, float)) and wait > 0:
-                    self.blocked_until = self.clock() + wait
-                    log.error("Telegram 限流，暂停自动回复 %s 秒", wait)
-                else:
-                    log.error("回复失败 chat=%s message=%s: %s",
-                              message.chat_id, message.message_id, exc)
-                self.state.finish(message.chat_id, message.message_id, "failed")
-                return False
-            self.state.finish(message.chat_id, message.message_id, "sent")
-            log.info("已发送系统时间图片 chat=%s message=%s", message.chat_id, message.message_id)
-            return True
+        except asyncio.CancelledError:
+            self.state.finish(message.chat_id, message.message_id, "cancelled")
+            raise
+        except Exception as exc:
+            # FloodWait errors expose seconds; back off globally without
+            # retrying an outdated screenshot.
+            wait = getattr(exc, "seconds", None)
+            if isinstance(wait, (int, float)) and wait > 0:
+                self.blocked_until = self.clock() + wait
+                log.error("Telegram 限流，暂停自动回复 %s 秒", wait)
+            else:
+                log.error("回复失败 chat=%s message=%s: %s",
+                          message.chat_id, message.message_id, exc)
+            self.state.finish(message.chat_id, message.message_id, "failed")
+            return False
+        self.state.finish(message.chat_id, message.message_id, "sent")
+        log.info("已发送系统时间图片 chat=%s message=%s", message.chat_id, message.message_id)
+        return True

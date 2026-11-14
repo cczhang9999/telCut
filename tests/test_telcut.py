@@ -58,6 +58,15 @@ class ConfigTests(unittest.TestCase):
             with self.subTest(data=data), self.assertRaises(ValueError):
                 self.load(data)
 
+    def test_delay_range_validation(self):
+        config = self.load({"delay_min_seconds": 30, "delay_max_seconds": 120})
+        self.assertEqual((config.delay_min_seconds, config.delay_max_seconds), (30, 120))
+        for data in ({"delay_min_seconds": -1}, {"delay_max_seconds": True},
+                     {"delay_max_seconds": float("inf")},
+                     {"delay_min_seconds": 121, "delay_max_seconds": 120}):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                self.load(data)
+
 
 class CaptureTests(unittest.TestCase):
     def test_blank_menu_is_rejected_but_visible_clock_text_is_accepted(self):
