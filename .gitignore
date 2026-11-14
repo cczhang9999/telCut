@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.env
+config.json
+.telcut/
+*.session*
+*.sqlite3*
+preview*.png
+.DS_Store
