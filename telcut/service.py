@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+import re
 import time
 from dataclasses import dataclass
 
@@ -33,13 +34,25 @@ class AutoReply:
 
     def matches(self, message: Incoming, now: float):
         age = now - message.timestamp
+        if self.config.trigger_mode == "exact":
+            # A command is the whole text. Do not trigger on prose such as
+            # “please use telCut”, or remove internal whitespace from commands.
+            keyword_matches = any(k.strip().casefold() == message.text.strip().casefold()
+                                  for k in self.config.keywords)
+        else:
+            keyword_matches = not self.config.keywords or any(
+                re.sub(r"\s+", "", k).casefold()
+                in re.sub(r"\s+", "", message.text).casefold()
+                for k in self.config.keywords
+            )
         return (
-            not (message.outgoing or message.broadcast or message.bot or message.service)
-            and message.chat_id in self.config.chat_ids
+            not (message.broadcast or message.service)
+            and (not message.outgoing or self.config.include_outgoing)
+            and not (message.bot and self.config.ignore_bots)
+            and (self.config.all_chats or message.chat_id in self.config.chat_ids)
             and (not self.config.sender_ids or message.sender_id in self.config.sender_ids)
             and -5 <= age <= self.config.max_message_age_seconds
-            and (not self.config.keywords
-                 or any(k in message.text.casefold() for k in self.config.keywords))
+            and keyword_matches
         )
 
     async def handle(self, message: Incoming):

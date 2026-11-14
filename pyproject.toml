@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "telcut"
 version = "0.1.0"
-description = "Reply to selected Telegram messages with a real macOS clock screenshot"
+description = "Generate real macOS menu bar images from Telegram telCut commands"
 requires-python = ">=3.9"
 dependencies = ["Telethon>=1.42,<2", "Pillow>=10.4,<12", "python-dotenv>=1,<2"]
 

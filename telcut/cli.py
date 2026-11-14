@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from telethon import TelegramClient, events
 
 from .capture import capture_clock
-from .config import Config
+from .config import CaptureConfig, Config
 from .service import AutoReply, Incoming
 from .state import State
 
@@ -45,7 +45,7 @@ def credentials(directory):
     return int(raw_id), api_hash
 
 
-async def telegram_command(command, config, directory):
+async def telegram_command(command, config, directory, on_ready=None):
     api_id, api_hash = credentials(directory)
     state_dir = directory / ".telcut"
     with session_lock(state_dir):
@@ -65,22 +65,29 @@ async def telegram_command(command, config, directory):
             # Populate entity cache and fail clearly for inaccessible chat IDs.
             dialogs = {d.id: d async for d in client.iter_dialogs()}
             missing = set(config.chat_ids) - set(dialogs)
-            if missing:
+            if missing and not config.all_chats:
                 raise ValueError(f"找不到目标聊天 {sorted(missing)}，请用 telcut chats 获取 ID")
             # Check capture permission before enabling any automatic replies.
             await asyncio.to_thread(capture_clock, config.capture)
             state = State(state_dir / "state.sqlite3")
 
             async def send(message, file, caption):
+                dialog = dialogs.get(message.chat_id)
+                entity = (dialog.input_entity if dialog is not None
+                          else await client.get_input_entity(message.chat_id))
                 await client.send_file(
-                    dialogs[message.chat_id].input_entity, file,
-                    caption=caption or None, reply_to=message.message_id,
-                    force_document=True, parse_mode=None,
+                    entity, file,
+                    caption=caption or None,
+                    reply_to=message.message_id if config.quote_reply else None,
+                    force_document=config.send_as_document, parse_mode=None,
                 )
 
             responder = AutoReply(config, state, send)
 
-            @client.on(events.NewMessage(incoming=True, chats=list(config.chat_ids)))
+            @client.on(events.NewMessage(
+                incoming=None if config.include_outgoing else True,
+                chats=None if config.all_chats else list(config.chat_ids)
+            ))
             async def on_message(event):
                 # Sender lookup may fail during reconnect; keep the handler alive.
                 try:
@@ -97,7 +104,12 @@ async def telegram_command(command, config, directory):
                 except Exception:
                     log.exception("处理消息失败 chat=%s message=%s", event.chat_id, event.id)
 
-            log.info("正在监听 %s 个聊天；按 Ctrl+C 停止", len(config.chat_ids))
+            if config.all_chats:
+                log.info("正在监听所有聊天的指令；按 Ctrl+C 停止")
+            else:
+                log.info("正在监听 %s 个聊天；按 Ctrl+C 停止", len(config.chat_ids))
+            if on_ready is not None:
+                on_ready()
             await client.run_until_disconnected()
         finally:
             await client.disconnect()
@@ -107,7 +119,7 @@ async def telegram_command(command, config, directory):
 
 def main():
     os.umask(0o077)
-    parser = argparse.ArgumentParser(description="收到 Telegram 消息后回复真实 macOS 系统时间截图")
+    parser = argparse.ArgumentParser(description="Telegram telCut 指令生成真实 macOS 菜单栏时间截图")
     parser.add_argument("--config", type=Path, default=Path("config.json"))
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init", help="生成配置文件")
@@ -115,7 +127,7 @@ def main():
     sub.add_parser("chats", help="列出聊天 ID")
     preview = sub.add_parser("preview", help="仅保存本地截图预览，不发送消息")
     preview.add_argument("--output", type=Path, default=Path("preview.png"))
-    sub.add_parser("run", help="开始自动回复")
+    sub.add_parser("run", help="监听 Telegram 截图指令")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("telethon").setLevel(logging.WARNING)
@@ -123,16 +135,21 @@ def main():
         path = args.config.expanduser().resolve()
         if args.command == "init":
             with path.open("x", encoding="utf-8") as handle:
-                json.dump(asdict(Config()), handle, ensure_ascii=False, indent=2)
+                profile = Config(all_chats=True, keywords=("telcut",), trigger_mode="exact",
+                                 include_outgoing=True, quote_reply=False, send_as_document=False,
+                                 cooldown_seconds=0,
+                                 capture=CaptureConfig(width_pixels=868, height_pixels=62,
+                                                       require_menu_content=True))
+                json.dump(asdict(profile), handle, ensure_ascii=False, indent=2)
                 handle.write("\n")
-            print(f"已创建 {path}。请配置 .env，并用 telcut chats 查询目标聊天 ID。")
+            print(f"已创建 {path}。配置 .env 并登录后，在 Telegram 发送 telCut 即可生成图片。")
             return
         config = Config.load(path)
         if args.command == "preview":
             args.output.write_bytes(capture_clock(config.capture))
             print(f"预览已保存：{args.output.resolve()}；请确认截图中日期和时间可见。")
             return
-        if args.command == "run" and not config.chat_ids:
+        if args.command == "run" and not config.chat_ids and not config.all_chats:
             raise ValueError("chat_ids 为空：请先运行 telcut chats，并填写至少一个目标聊天 ID")
         asyncio.run(telegram_command(args.command, config, path.parent))
     except KeyboardInterrupt:

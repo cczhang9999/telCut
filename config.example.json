@@ -1,13 +1,22 @@
 {
+  "all_chats": true,
+  "ignore_bots": true,
   "chat_ids": [],
   "sender_ids": [],
-  "keywords": [],
-  "cooldown_seconds": 30,
+  "keywords": ["telCut"],
+  "trigger_mode": "exact",
+  "include_outgoing": true,
+  "quote_reply": false,
+  "send_as_document": false,
+  "cooldown_seconds": 0,
   "max_message_age_seconds": 120,
   "caption": "",
   "capture": {
     "display": 1,
     "right_width_ratio": 0.5,
-    "top_height_ratio": 0.04
+    "top_height_ratio": 0.04,
+    "width_pixels": 868,
+    "height_pixels": 62,
+    "require_menu_content": true
   }
 }

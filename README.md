@@ -1,12 +1,26 @@
 # telCut
 
-在 **macOS** 上收到指定 Telegram 聊天的新消息时，自动截取菜单栏右上角的真实系统日期和时间，并引用原消息回发 PNG。适用于个人 Telegram 账号；不需要对方添加机器人。
+在 Telegram 聊天中发送 `telCut`，自动在同一聊天发送一张真实 macOS 菜单栏日期时间图片。只发图片，不附文字、不引用原消息。支持你自己发出的指令及别人发来的指令；指令忽略大小写和首尾空白，普通句子里提到 telCut 不会触发。
 
-截图来自系统原生 `screencapture`，不绘制、不修改时间。程序需要在你的 Mac 上持续运行；电脑休眠、锁屏或断网时不能保证回复，也不能用 GitHub Actions 代替本机运行。
+默认截取主屏幕右上角 868×62 像素的横条，与参考图的形状一致。图标、主题和日期时间来自当前电脑的真实屏幕，不绘制或改写时间。程序需要在你的 Mac 上持续运行。
 
-## 安装与首次使用
+## 本机已安装的版本
 
-需要 macOS 和 Python 3.9 或以上版本。打开终端执行：
+如果旧版仍在运行，先在原终端按 **Ctrl+C**，再双击 **启动telCut.command**。已有 `.env` 和 Telegram 登录会话会继续使用，无需重复填写。
+
+出现“telCut 已启动”后，在 Telegram 中发送：
+
+```text
+telCut
+```
+
+图片会作为普通照片发到这条指令所在的聊天；不引用指令，也没有文字说明。发出的图片没有文字，所以不会再次触发截图。每条指令最多尝试一次；原来的长通知不再触发。
+
+请在 macOS 设置中将菜单栏设为始终显示，并让目标屏幕右上角的日期、时间可见。启动时会打开 `preview.png`，请检查内容。菜单栏为空白时程序会提示调整，不会发送空白横条；该检测只检查可见文字或图标，仍需人工确认预览里日期时间完整。
+
+## 从源码安装
+
+需要 macOS 和 Python 3.9 或以上版本：
 
 ```bash
 git clone https://github.com/cczhang9999/telCut.git
@@ -16,95 +30,64 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 telcut init
-cp .env.example .env
 ```
 
-在 [my.telegram.org](https://my.telegram.org) 的 **API development tools** 中创建应用，取得自己的 `api_id` 和 `api_hash`，填写到 `.env`：
+然后双击 `启动telCut.command`，按本机终端提示完成设置。也可以运行 `python setup_local.py`。
 
-```dotenv
-TELEGRAM_API_ID=你的数字ID
-TELEGRAM_API_HASH=你的32位API哈希
-```
+首次设置需要在 [my.telegram.org](https://my.telegram.org) 的 API development tools 中取得自己的 `api_id` 和 `api_hash`。程序会在本机终端询问这些值及 Telegram 登录信息，`api_hash` 不回显；凭据无需发送到聊天中。已有登录信息时跳过这一步。
 
-这是 Telegram 用户账号客户端，登录和消息发送使用 [Telethon 官方接口](https://docs.telethon.dev/en/stable/basic/quick-start.html)。首次执行以下命令时，在本机终端输入手机号、Telegram 验证码，以及可选的两步验证密码：
+需要给运行程序的终端授予 macOS **系统设置 → 隐私与安全性 → 屏幕录制** 权限，必要时退出并重新打开终端。截图来自系统原生 `screencapture`；只把裁剪后的图片上传，完整屏幕截图在私有临时目录中处理后删除。
 
-```bash
-telcut login
-telcut chats
-```
+## 本地配置
 
-从输出中复制目标聊天的 **数字 ID** 到 `config.json` 的 `chat_ids`。群 ID 通常为负数，请完整复制，包括 `-100` 前缀；不支持用显示名称代替 ID。例子：
+`config.json` 的默认指令配置：
 
 ```json
 {
-  "chat_ids": [123456789, -1001234567890],
+  "all_chats": true,
+  "ignore_bots": true,
+  "chat_ids": [],
   "sender_ids": [],
-  "keywords": [],
-  "cooldown_seconds": 30,
+  "keywords": ["telCut"],
+  "trigger_mode": "exact",
+  "include_outgoing": true,
+  "quote_reply": false,
+  "send_as_document": false,
+  "cooldown_seconds": 0,
   "max_message_age_seconds": 120,
   "caption": "",
   "capture": {
     "display": 1,
     "right_width_ratio": 0.5,
-    "top_height_ratio": 0.04
+    "top_height_ratio": 0.04,
+    "width_pixels": 868,
+    "height_pixels": 62,
+    "require_menu_content": true
   }
 }
 ```
 
-上面的 ID 只是格式示例，请替换成 `telcut chats` 的实际输出。
+`width_pixels`、`height_pixels` 按实际截屏像素裁剪，优先于比例设置。若时间或图标不完整，可适当增大尺寸并重新预览；不同屏幕、缩放比例、菜单栏布局可能需要调整。`display: 1` 为主屏幕，`2` 为第二块屏幕。设为 `null` 时使用宽高比例。
 
-## 先确认截图，再开启回复
+`all_chats: true` 监听所有可发送消息的聊天，并要求非空关键词；如仅允许部分聊天，改为 `false` 并在 `chat_ids` 填写 `telcut chats` 输出的数字 ID。默认忽略机器人消息、服务消息和广播频道。不补发离线历史消息。发送失败或限流时在终端记录，不发送错误文字到聊天，也不会自动重试同一指令。
 
-1. 在 macOS **系统设置 → 隐私与安全性 → 屏幕录制**（部分系统显示“屏幕与系统音频录制”）中允许运行程序的终端，如 Terminal 或 iTerm，然后退出并重新打开终端。
-2. 在 **系统设置 → 控制中心 → 时钟选项** 中设置显示日期；在 **桌面与程序坞 → 菜单栏** 中关闭自动隐藏。不同 macOS 版本的设置位置可能略有不同。
-3. 执行以下命令并打开预览，确认实际日期、时间完整可见：
+修改配置后需要停止并重新启动程序。终端窗口需保持运行，按 Ctrl+C 停止。电脑休眠、锁屏、菜单栏隐藏或断网时不能保证生成图片。
+
+其他命令：
 
 ```bash
-source .venv/bin/activate
 telcut preview --output preview.png
-open preview.png
-```
-
-预览命令只在本地生成图片，不会发送消息。`display: 1` 表示主屏幕，`2` 表示第二块屏幕；目标屏幕必须有可见的时钟。`right_width_ratio` 是从屏幕右边保留的宽度比例，`top_height_ratio` 是从顶部保留的高度比例。默认保留右侧 50%、顶部 4%；如果时间被裁切，调整比例后重新预览。比例以真实截屏像素计算，适配 Retina；截图中可能包含同一区域的其他菜单栏图标。
-
-确认后启动：
-
-```bash
+telcut login
+telcut chats
 telcut run
 ```
 
-从另一个账号向配置的聊天发送消息，即可看到回复。图片以 PNG 文件发送，保留菜单栏文字清晰度。按 **Ctrl+C** 停止。修改配置后需要重启 `telcut run`。
+预览只保存在本机，不上传。配置也可通过 `telcut --config /绝对路径/config.json run` 指定。`.env`、`config.json` 和 `.telcut/` 已被 Git 忽略；会话文件可以用于登录账号，请勿上传。
 
-## 触发规则
-
-| 配置 | 含义 |
-| --- | --- |
-| `chat_ids` | 必填白名单；空数组会拒绝启动自动回复 |
-| `sender_ids` | 可选的发件人数字 ID 白名单；空数组表示目标聊天中的所有真人发件人 |
-| `keywords` | 任一关键词包含匹配，不区分大小写；`[]` 表示所有新消息，包括图片等媒体消息。媒体的文字说明也参与匹配 |
-| `cooldown_seconds` | 同一聊天两次尝试的最小间隔，默认 30 秒；冷却中的消息跳过，不延后补发 |
-| `max_message_age_seconds` | 只处理最近的新消息，默认 120 秒；离线历史消息不会主动补发 |
-| `caption` | 可选固定图片说明，默认不附加文字 |
-
-例如仅响应包含“查岗”或“在线”的消息：`"keywords": ["查岗", "在线"]`。如果对方发送 `1` 就要回复，设置 `"keywords": ["1"]`，或保持空数组以响应任何消息。
-
-仅监听新收到的消息；忽略自己发出的消息、机器人消息、服务消息和广播频道。群聊可配置 `sender_ids` 限制触发人员；需要发件人 ID 时，可在与该人的私聊中使用 `telcut chats` 获取其用户 ID。
-
-SQLite 持久化消息去重，进程锁防止同一配置重复启动。每条消息在截图前登记；截图或发送失败也不会自动重发同一条消息，避免网络超时下重复上传。日志会记录失败；可修复权限或网络后让对方重新发一条消息。Telegram 限流时暂停回复，期间消息不排队补发。
-
-配置、登录会话和去重数据库默认保存在当前项目目录（`config.json`、`.env`、`.telcut/`），均已加入 `.gitignore`。完整截屏只暂存在私有临时目录，裁剪后删除；发送内容仅为裁剪区域。不要上传 `.env` 或 `.telcut/`：会话文件可以用于登录你的账号。
-
-也可通过 `telcut --config /绝对路径/config.json run` 使用其他配置；对应 `.env` 和 `.telcut/` 会位于该配置文件的目录。
-
-## 排查与测试
-
-- `chat_ids 为空`：执行 `telcut chats`，填入真实目标 ID。
-- 截图失败：检查终端屏幕录制权限、重启终端并确认屏幕编号。菜单栏隐藏或锁屏时即使截屏成功也可能没有可见时钟，请先检查预览。
-- 没有回复：确认本机程序仍在运行、发件人不是当前账号或机器人、关键词及发件人规则匹配，且不在冷却期；检查终端日志。
-- 需要通过代理连接 Telegram：当前版本使用系统可直连的网络，不提供应用内代理配置。
+## 验证
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-自动测试使用模拟消息、模拟发送接口和合成图像，不连接真实 Telegram，不向任何人发消息。真实账号登录、macOS 屏幕录制授权及另一账号发消息的端到端验证需要在你的 Mac 上完成。
+测试使用模拟消息、模拟发送接口和合成图像，不向真实 Telegram 聊天发送消息。真实屏幕权限和消息发送需在你的 Mac 上验证。
