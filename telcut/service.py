@@ -83,5 +83,5 @@ class AutoReply:
                 self.state.finish(message.chat_id, message.message_id, "failed")
                 return False
             self.state.finish(message.chat_id, message.message_id, "sent")
-            log.info("已回复系统时间截图 chat=%s message=%s", message.chat_id, message.message_id)
+            log.info("已发送系统时间图片 chat=%s message=%s", message.chat_id, message.message_id)
             return True

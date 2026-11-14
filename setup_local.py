@@ -4,13 +4,11 @@ import getpass
 import json
 import logging
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 from dotenv import dotenv_values
 
-from telcut.capture import MenuBarHiddenError, capture_clock
 from telcut.cli import session_lock, telegram_command
 from telcut.config import Config
 
@@ -48,28 +46,6 @@ def prepare_credentials():
     path.chmod(0o600)
 
 
-def prepare_capture(config):
-    while True:
-        try:
-            png = capture_clock(config.capture)
-            preview = ROOT / "preview.png"
-            preview.write_bytes(png)
-            print(f"\n系统时间截图预览：{preview}")
-            subprocess.run(["/usr/bin/open", str(preview)], check=False)
-            return
-        except MenuBarHiddenError as exc:
-            status("needs_visible_menu_bar", str(exc))
-            print(f"\n{exc}")
-            input("菜单栏可见后按回车重试；也可按 Ctrl+C 退出: ")
-        except RuntimeError as exc:
-            status("needs_screen_permission", str(exc))
-            print(f"\n{exc}")
-            print("请为 Terminal（终端）开启屏幕录制权限。必要时退出终端，再双击“启动telCut.command”。")
-            subprocess.run(["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
-                           check=False)
-            input("权限已开启后按回车重试；也可按 Ctrl+C 退出: ")
-
-
 def ready():
     status("running")
     print("\ntelCut 已启动：在 Telegram 中发送 telCut，会在同一聊天发送菜单栏时间图片。"
@@ -87,9 +63,6 @@ def main():
             for keyword in config.keywords:
                 print(keyword)
             prepare_credentials()
-            status("needs_telegram_login")
-            asyncio.run(telegram_command("login", config, ROOT))
-            prepare_capture(config)
             status("starting")
             asyncio.run(telegram_command("run", config, ROOT, on_ready=ready))
             status("stopped")

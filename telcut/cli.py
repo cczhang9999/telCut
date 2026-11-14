@@ -67,8 +67,8 @@ async def telegram_command(command, config, directory, on_ready=None):
             missing = set(config.chat_ids) - set(dialogs)
             if missing and not config.all_chats:
                 raise ValueError(f"找不到目标聊天 {sorted(missing)}，请用 telcut chats 获取 ID")
-            # Check capture permission before enabling any automatic replies.
-            await asyncio.to_thread(capture_clock, config.capture)
+            # A hidden menu or pending screen permission must not prevent
+            # registering commands. Capture is performed only for a command.
             state = State(state_dir / "state.sqlite3")
 
             async def send(message, file, caption):

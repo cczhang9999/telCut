@@ -1,17 +1,20 @@
 import asyncio
 import io
+import importlib.util
 import json
 import tempfile
 import time
 import unittest
 from dataclasses import replace
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from telcut.capture import capture_clock, crop_clock, has_menu_content
+from telcut.capture import (ScreenCapturePermissionError, capture_clock, crop_clock,
+                            has_menu_content, screen_capture_access)
 from telcut.cli import session_lock, telegram_command
 from telcut.config import CaptureConfig, Config
 from telcut.service import AutoReply, Incoming
@@ -96,6 +99,7 @@ class CaptureTests(unittest.TestCase):
             return type("Result", (), {"returncode": 0})()
 
         with patch("telcut.capture.sys.platform", "darwin"), \
+                patch("telcut.capture.screen_capture_access", return_value=True), \
                 patch("telcut.capture.subprocess.run", side_effect=fake_capture):
             png = capture_clock(CaptureConfig())
         with Image.open(io.BytesIO(png)) as image:
@@ -105,10 +109,19 @@ class CaptureTests(unittest.TestCase):
 
     def test_permission_failure_raises_without_upload(self):
         with patch("telcut.capture.sys.platform", "darwin"), \
+                patch("telcut.capture.screen_capture_access", return_value=True), \
                 patch("telcut.capture.subprocess.run") as run:
             run.return_value.returncode = 1
             with self.assertRaisesRegex(RuntimeError, "屏幕录制"):
                 capture_clock(CaptureConfig())
+
+    def test_denied_permission_does_not_capture_a_redacted_desktop(self):
+        with patch("telcut.capture.sys.platform", "darwin"), \
+                patch("telcut.capture.screen_capture_access", return_value=False), \
+                patch("telcut.capture.subprocess.run") as run:
+            with self.assertRaisesRegex(ScreenCapturePermissionError, "权限尚未生效"):
+                capture_clock(CaptureConfig())
+            run.assert_not_called()
 
 
 class ReplyTests(unittest.IsolatedAsyncioTestCase):
@@ -255,6 +268,30 @@ class LockTests(unittest.TestCase):
                         pass
 
 
+class LauncherTests(unittest.TestCase):
+    def test_launcher_starts_listener_without_capture_or_enter_prompt(self):
+        path = Path(__file__).resolve().parents[1] / "setup_local.py"
+        spec = importlib.util.spec_from_file_location("telcut_setup_test", path)
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        commands = []
+
+        async def telegram(command, config, directory, on_ready=None):
+            commands.append(command)
+            on_ready()
+
+        with patch.object(launcher, "prepare_credentials"), \
+                patch.object(launcher.Config, "load", return_value=Config()), \
+                patch.object(launcher, "session_lock", return_value=nullcontext()), \
+                patch.object(launcher, "status"), \
+                patch.object(launcher, "telegram_command", side_effect=telegram), \
+                patch("builtins.input", side_effect=AssertionError("startup must not wait for Enter")), \
+                patch("builtins.print"), \
+                patch("logging.basicConfig"):
+            launcher.main()
+        self.assertEqual(commands, ["run"])
+
+
 class TelegramAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_incoming_event_uploads_real_crop_to_original_chat_and_reply(self):
         await self.adapter_roundtrip(all_chats=False)
@@ -265,10 +302,13 @@ class TelegramAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_command_posts_photo_without_text_or_quoted_reply(self):
         await self.adapter_roundtrip(all_chats=True, command_mode=True)
 
-    async def adapter_roundtrip(self, all_chats, command_mode=False):
+    async def test_capture_problem_does_not_block_listener_and_next_command_can_succeed(self):
+        await self.adapter_roundtrip(all_chats=True, command_mode=True, first_capture_fails=True)
+
+    async def adapter_roundtrip(self, all_chats, command_mode=False, first_capture_fails=False):
         now = time.time()
         uploaded = []
-        options = {}
+        options = {"ready": False, "captures": 0}
         target_id = 999 if all_chats else 123
 
         class FakeClient:
@@ -297,6 +337,8 @@ class TelegramAdapterTests(unittest.IsolatedAsyncioTestCase):
                 uploaded.append((entity, file.read(), kwargs))
 
             async def run_until_disconnected(self):
+                self_test.assertTrue(options["ready"])
+                self_test.assertEqual(options["captures"], 0)
                 async def get_sender():
                     return SimpleNamespace(bot=False)
 
@@ -307,12 +349,19 @@ class TelegramAdapterTests(unittest.IsolatedAsyncioTestCase):
                     get_sender=get_sender, message=SimpleNamespace(action=None),
                 )
                 await self.callback(event)
+                if first_capture_fails:
+                    self_test.assertEqual(uploaded, [])
+                    event.id = 43
+                    await self.callback(event)
 
         def client_factory(*args, **kwargs):
             options.update(kwargs)
             return FakeClient()
 
         def capture(args, **kwargs):
+            options["captures"] += 1
+            if first_capture_fails and options["captures"] == 1:
+                raise RuntimeError("屏幕暂不可用")
             Image.new("RGB", (1000, 800), "green").save(args[-1])
             return SimpleNamespace(returncode=0)
 
@@ -321,13 +370,16 @@ class TelegramAdapterTests(unittest.IsolatedAsyncioTestCase):
                 patch("telcut.cli.credentials", return_value=(12345, "a" * 32)), \
                 patch("telcut.cli.TelegramClient", side_effect=client_factory), \
                 patch("telcut.capture.sys.platform", "darwin"), \
+                patch("telcut.capture.screen_capture_access", return_value=True), \
                 patch("telcut.capture.subprocess.run", side_effect=capture):
             config = Config(all_chats=all_chats, chat_ids=(123,), keywords=("查岗",))
             if command_mode:
                 config = replace(config, keywords=("telcut",), trigger_mode="exact",
                                  include_outgoing=True, quote_reply=False, send_as_document=False,
+                                 cooldown_seconds=0,
                                  capture=CaptureConfig(width_pixels=868, height_pixels=62))
-            await telegram_command("run", config, Path(directory))
+            await telegram_command("run", config, Path(directory),
+                                   on_ready=lambda: options.update(ready=True))
         self.assertEqual(len(uploaded), 1)
         entity, png, kwargs = uploaded[0]
         self.assertEqual(entity, "new-peer" if all_chats else "target-peer")

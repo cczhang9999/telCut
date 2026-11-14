@@ -1,3 +1,4 @@
+import ctypes
 import io
 import subprocess
 import sys
@@ -11,6 +12,28 @@ from .config import CaptureConfig
 
 class MenuBarHiddenError(RuntimeError):
     pass
+
+
+class ScreenCapturePermissionError(RuntimeError):
+    pass
+
+
+def screen_capture_access(request=False):
+    """Use the macOS permission API; None means the API is unavailable."""
+    try:
+        graphics = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+        preflight = graphics.CGPreflightScreenCaptureAccess
+        preflight.argtypes = []
+        preflight.restype = ctypes.c_bool
+        allowed = bool(preflight())
+        if allowed or not request:
+            return allowed
+        ask = graphics.CGRequestScreenCaptureAccess
+        ask.argtypes = []
+        ask.restype = ctypes.c_bool
+        return bool(ask())
+    except (OSError, AttributeError):
+        return None
 
 
 def has_menu_content(image: Image.Image) -> bool:
@@ -40,6 +63,12 @@ def crop_clock(image: Image.Image, config: CaptureConfig) -> Image.Image:
 def capture_clock(config: CaptureConfig) -> bytes:
     if sys.platform != "darwin":
         raise RuntimeError("当前版本需要在 macOS 本机运行")
+    if screen_capture_access(request=True) is False:
+        raise ScreenCapturePermissionError(
+            "屏幕录制权限尚未生效：请在系统设置→隐私与安全性→屏幕录制中允许"
+            "运行程序的终端（Terminal/终端），退出整个终端应用并重新打开启动脚本，"
+            "看到 telCut 已启动后，再发送一条新的 telCut 指令。"
+        )
     # The full display exists only in a private temporary directory and is
     # removed before returning. Only the cropped PNG reaches the sender.
     with tempfile.TemporaryDirectory(prefix="telcut-") as directory:
@@ -61,8 +90,9 @@ def capture_clock(config: CaptureConfig) -> bytes:
             cropped = crop_clock(image, config).convert("RGB")
             if config.require_menu_content and not has_menu_content(cropped):
                 raise MenuBarHiddenError(
-                    "截图中没有检测到菜单栏文字或图标。请将 macOS 菜单栏设为始终显示，"
-                    "并确认目标屏幕右上角日期时间可见，然后重试。"
+                    "截屏区域中未检测到菜单栏文字或图标：请检查目标屏幕编号、菜单栏可见性，"
+                    "以及终端的屏幕录制权限是否在重启终端后生效。监听仍在运行；"
+                    "修复后请重新发送 telCut。"
                 )
             output = io.BytesIO()
             cropped.save(output, format="PNG")
