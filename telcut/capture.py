@@ -67,7 +67,7 @@ def capture_clock(config: CaptureConfig) -> bytes:
         raise ScreenCapturePermissionError(
             "屏幕录制权限尚未生效：请在系统设置→隐私与安全性→屏幕录制中允许"
             "运行程序的终端（Terminal/终端），退出整个终端应用并重新打开启动脚本，"
-            "看到 telCut 已启动后，再发送一条新的 telCut 指令。"
+            "看到 telCut 已启动后，再发送一条新的触发消息。"
         )
     # The full display exists only in a private temporary directory and is
     # removed before returning. Only the cropped PNG reaches the sender.
@@ -92,7 +92,7 @@ def capture_clock(config: CaptureConfig) -> bytes:
                 raise MenuBarHiddenError(
                     "截屏区域中未检测到菜单栏文字或图标：请检查目标屏幕编号、菜单栏可见性，"
                     "以及终端的屏幕录制权限是否在重启终端后生效。监听仍在运行；"
-                    "修复后请重新发送 telCut。"
+                    "修复后请重新发送触发消息。"
                 )
             output = io.BytesIO()
             cropped.save(output, format="PNG")

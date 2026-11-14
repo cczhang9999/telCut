@@ -46,9 +46,11 @@ def prepare_credentials():
     path.chmod(0o600)
 
 
-def ready():
+def ready(config):
     status("running")
-    print("\ntelCut 已启动：在 Telegram 中发送 telCut，会在同一聊天发送菜单栏时间图片。"
+    mode = "包含" if config.trigger_mode == "contains" else "完全等于"
+    print(f"\ntelCut 已启动：Telegram 消息{mode}“{' / '.join(config.keywords)}”时，"
+          "在同一聊天发送菜单栏时间图片。"
           "不附文字、不引用原消息。保持本窗口运行，按 Ctrl+C 停止。", flush=True)
 
 
@@ -59,12 +61,13 @@ def main():
     try:
         with session_lock(STATE / "setup"):
             config = Config.load(ROOT / "config.json")
-            print("telCut 菜单栏截图\n匹配范围：所有聊天；包括你自己发出的指令\n完整指令：")
+            mode = "包含匹配" if config.trigger_mode == "contains" else "完整匹配"
+            print(f"telCut 菜单栏截图\n匹配范围：所有聊天；包括自己发出的消息\n触发词（{mode}）：")
             for keyword in config.keywords:
                 print(keyword)
             prepare_credentials()
             status("starting")
-            asyncio.run(telegram_command("run", config, ROOT, on_ready=ready))
+            asyncio.run(telegram_command("run", config, ROOT, on_ready=lambda: ready(config)))
             status("stopped")
     except KeyboardInterrupt:
         status("stopped")

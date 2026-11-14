@@ -135,14 +135,14 @@ def main():
         path = args.config.expanduser().resolve()
         if args.command == "init":
             with path.open("x", encoding="utf-8") as handle:
-                profile = Config(all_chats=True, keywords=("telcut",), trigger_mode="exact",
+                profile = Config(all_chats=True, keywords=("是ZF-DA组",), trigger_mode="contains",
                                  include_outgoing=True, quote_reply=False, send_as_document=False,
                                  cooldown_seconds=0,
                                  capture=CaptureConfig(width_pixels=868, height_pixels=62,
                                                        require_menu_content=True))
                 json.dump(asdict(profile), handle, ensure_ascii=False, indent=2)
                 handle.write("\n")
-            print(f"已创建 {path}。配置 .env 并登录后，在 Telegram 发送 telCut 即可生成图片。")
+            print(f"已创建 {path}。登录后，Telegram 消息包含“是ZF-DA组”即可触发截图。")
             return
         config = Config.load(path)
         if args.command == "preview":
